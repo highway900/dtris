@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-chef
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-chef
+
+      - name: Generate chef recipe
+        run: cargo chef prepare --recipe-path recipe.json
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-chef-${{ hashFiles('recipe.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-chef-
+            ${{ runner.os }}-
+
+      - name: Cook cache
+        run: cargo chef cook --recipe-path recipe.json
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Find binary path and name
+        id: find_binary
+        shell: bash
+        run: |
+          BINARY_NAME="dtris"
+          case ${{ runner.os }} in
+            Linux)
+              BINARY_PATH="target/release/${BINARY_NAME}"
+              ASSET_NAME="${BINARY_NAME}-linux"
+              ;;
+            macOS)
+              BINARY_PATH="target/release/${BINARY_NAME}"
+              ASSET_NAME="${BINARY_NAME}-macos"
+              ;;
+            Windows)
+              BINARY_PATH="target/release/${BINARY_NAME}.exe"
+              ASSET_NAME="${BINARY_NAME}-windows.exe"
+              ;;
+            *)
+              echo "Unsupported OS"
+              exit 1
+              ;;
+          esac
+          echo "binary_path=${BINARY_PATH}" >> "$GITHUB_OUTPUT"
+          echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ steps.find_binary.outputs.binary_path }}
+          asset_name: ${{ steps.find_binary.outputs.asset_name }}
+          asset_content_type: application/octet-stream
