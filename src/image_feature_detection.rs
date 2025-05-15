@@ -1,6 +1,7 @@
 use image::{DynamicImage, GenericImageView, GrayImage, Luma, Pixel, Rgb, RgbImage};
 use rand::Rng;
 
+#[allow(dead_code)]
 pub fn detect_texture_detail(img: &DynamicImage) -> GrayImage {
     let width = img.width();
     let height = img.height();
@@ -56,7 +57,7 @@ pub fn detect_texture_detail(img: &DynamicImage) -> GrayImage {
     detail
 }
 
-pub fn detect_texture_detail_color(img: &DynamicImage, samples: i32) -> DynamicImage {
+pub fn _detect_texture_detail_color(img: &DynamicImage, samples: u32) -> DynamicImage {
     let width = img.width();
     let height = img.height();
     let mut detail_color = RgbImage::new(width, height);

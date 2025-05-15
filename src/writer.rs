@@ -9,7 +9,7 @@ use std::io::Write;
 
 use crate::Vertex;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, clap::ValueEnum)]
 pub enum Output {
     /// Output standard glTF.
     Standard,
@@ -53,6 +53,7 @@ pub fn write_gltf(
     indices: &[u32],
     output: Output,
     output_filename_base: &str,
+    output_dir: &str,
 ) {
     if vertices.is_empty() || indices.is_empty() {
         println!(
@@ -221,14 +222,14 @@ pub fn write_gltf(
 
     match output {
         Output::Standard => {
-            let _ = fs::create_dir("triangle");
+            let _ = fs::create_dir(format!("{output_dir}"));
 
-            let writer = fs::File::create(format!("triangle/{output_filename_base}.gltf"))
+            let writer = fs::File::create(format!("{output_dir}/{output_filename_base}.gltf"))
                 .expect("I/O error");
             json::serialize::to_writer_pretty(writer, &root).expect("Serialization error");
 
             // Write the combined buffer data (vertices + indices)
-            let mut writer = fs::File::create(format!("triangle/{output_filename_base}.bin"))
+            let mut writer = fs::File::create(format!("{output_dir}/{output_filename_base}.bin"))
                 .expect("I/O error");
             writer
                 .write_all(&combined_buffer_data)
@@ -251,7 +252,7 @@ pub fn write_gltf(
                 bin: Some(Cow::Borrowed(&combined_buffer_data)),
                 json: Cow::Owned(json_string.into_bytes()),
             };
-            let writer = std::fs::File::create(format!("triangle/{output_filename_base}.glb"))
+            let writer = std::fs::File::create(format!("{output_dir}/{output_filename_base}.glb"))
                 .expect("I/O error");
             glb.to_writer(writer).expect("glTF binary output error");
         }

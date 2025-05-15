@@ -5,7 +5,6 @@ use clap::Parser;
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, Rgb, RgbImage, imageops::FilterType};
-use image_feature_detection::detect_texture_detail_color;
 use rand::Rng;
 use spade::{DelaunayTriangulation, HasPosition, Point2, Triangulation};
 use std::{collections::HashMap, f32::consts::PI};
@@ -32,7 +31,7 @@ struct Vertex {
 ///     A Result containing a Vec of Vertex structs, where each vertex
 ///     has a position corresponding to the sampled pixel coordinates (x, y, 0.0)
 ///     and the color of that pixel, or an error if image loading/processing fails.
-fn sample_image_points(img: &DynamicImage, num_samples: usize) -> Result<Vec<Vertex>> {
+fn sample_image_points(img: &DynamicImage, num_samples: u32) -> Result<Vec<Vertex>> {
     // 2. Ensure it's RGB for easy color access
     let rgb_img: RgbImage = img.to_rgb8();
     let (width, height) = rgb_img.dimensions();
@@ -43,7 +42,7 @@ fn sample_image_points(img: &DynamicImage, num_samples: usize) -> Result<Vec<Ver
     }
 
     // 3. Prepare for sampling
-    let mut sampled_vertices = Vec::with_capacity(num_samples);
+    let mut sampled_vertices = Vec::with_capacity(num_samples as usize);
     let mut rng = rand::rng();
 
     println!("Sampling {} points...", num_samples);
@@ -434,6 +433,34 @@ fn adjust_levels(img: &DynamicImage, black_point: u8, white_point: u8) -> Dynami
     DynamicImage::ImageRgb8(new_img)
 }
 
+/// Flips the Z-axis of a slice of vertices by negating the Z component.
+fn flip_z_axis(vertices: &mut [Vertex]) {
+    for vertex in vertices.iter_mut() {
+        vertex.position[2] *= -1.0;
+    }
+}
+
+/// Adds duplicate vertices for points on the left edge of the image,
+/// positioned at the right edge, to close the seam in spherical remapping.
+///
+/// # Arguments
+/// * `vertices` - A mutable vector of `Vertex` to process.
+/// * `width` - The width of the original 2D rectangle (image).
+fn add_horizontal_seam_duplicates(vertices: &mut Vec<Vertex>, width: u32) {
+    let mut duplicates = Vec::new();
+    for vertex in vertices.iter() {
+        // Check if the vertex is on the left edge (x-coordinate is 0)
+        if vertex.position[0] == 0.0 {
+            let mut duplicate_vertex = vertex.clone();
+            // Set the x-coordinate of the duplicate to the right edge (width - 1)
+            duplicate_vertex.position[0] = (width - 1) as f32;
+            duplicates.push(duplicate_vertex);
+        }
+    }
+    // Add the collected duplicates to the original vector
+    vertices.extend(duplicates);
+}
+
 /// Remaps a 2D point from a rectangle to a point on a sphere.
 ///
 /// The 2D point is assumed to be within the bounds [0, width-1] for x
@@ -508,51 +535,77 @@ struct Args {
     #[arg(short, long, default_value = "grid")]
     sample: SamplingMethod,
     /// Spacing for grid sampling (ignored for random sampling)
-    #[arg(long, default_value = "10")] // Default spacing of 10 pixels
+    #[arg(long, default_value = "50")]
     grid_spacing: u32,
+    /// Number of samples for random sampling
+    #[arg(long, default_value = "3000")]
+    detail_samples: u32,
+    /// Write a GLTF or GLB
+    #[arg(long, default_value = "standard")]
+    output_type: Output,
+    /// Scales the output on write
+    #[arg(long, default_value = "200.0")]
+    output_scale: f32,
+    /// Image will be scaled down
+    #[arg(long, default_value = "0.5")]
+    input_img_scale: f32,
+    /// Black level adjustment
+    #[arg(long, default_value = "64")]
+    black_level: u8,
+    /// White level adjustment
+    #[arg(long, default_value = "255")]
+    white_level: u8,
+    /// Edge threshold, all values above this grey scale value will be sampled
+    #[arg(long, default_value = "2")]
+    grey_threshold: u8,
+    /// Output directory
+    #[arg(long, default_value = "output")]
+    output_dir: String,
 }
 
 fn main() -> Result<()> {
-    // --- Configuration ---
     let args = Args::parse();
     let image_file = args.image_file.clone();
-    let num_samples = 8000;
-    let sphere_scale = 200.0;
+    let detail_samples = args.detail_samples.clone();
+    let sphere_scale = args.output_scale;
+    let input_img_scale = args.input_img_scale;
 
-    // --- Steps ---
-
-    // 1. Load the image
     println!("Loading image from: {:?}", image_file);
     let img_base = image::open(image_file.clone())
         .with_context(|| format!("Failed to open image: {:?}", image_file))?;
-    let img = img_base.resize(
-        img_base.width() / 2,
-        img_base.height() / 2,
-        FilterType::CatmullRom,
-    );
-    let img = adjust_levels(&img, 64, 255);
-    // 1.1 Sample points from the image
-    let feat_img = detect_texture_detail_color(&img, 5000);
-    feat_img
-        .save("detail.png")
-        .expect("Could not save detail image");
+    let img = if input_img_scale != 1.0 {
+        img_base.resize(
+            (img_base.width() as f32 * input_img_scale) as u32,
+            (img_base.height() as f32 * input_img_scale) as u32,
+            FilterType::CatmullRom,
+        )
+    } else {
+        img_base
+    };
+    let img = adjust_levels(&img, args.black_level, args.white_level);
+
     let kernel_edge_detection = [-1.0_f32, -1.0, -1.0, -1.0, 8.0, -1.0, -1.0, -1.0, -1.0];
     let edge_img = img.filter3x3(&kernel_edge_detection);
     edge_img
         .save("edge.png")
         .expect("Could not save detail image");
-    let mut sampled_vertices = sample_from_image_to_image(&edge_img, &img, 2)?;
+    let mut sampled_vertices = sample_from_image_to_image(&edge_img, &img, args.grey_threshold)?;
 
     let img_sampled_vertices = match args.sample {
         SamplingMethod::Random => {
             let corner_verts = sample_image_edges(&img)?;
             sampled_vertices.extend(corner_verts);
-            sample_image_points(&img, num_samples)?
+
+            sample_image_points(&img, detail_samples)?
         }
         SamplingMethod::Grid => sample_image_grid(&img, args.grid_spacing)?,
     };
 
     sampled_vertices.extend(img_sampled_vertices);
+
+    // Add duplicate vertices for the horizontal seam to close the sphere for spherical mapping
+    let img_width = img.width();
+    add_horizontal_seam_duplicates(&mut sampled_vertices, img_width);
 
     // Handle case where no vertices were sampled (e.g., 0 samples requested or empty image)
     if sampled_vertices.is_empty() {
@@ -561,13 +614,15 @@ fn main() -> Result<()> {
     }
 
     // 2. Create the Delaunay mesh
-    let (mesh_vertices, mesh_indices) = create_delaunay_mesh(&sampled_vertices)?;
+    let (mut mesh_vertices, mesh_indices) = create_delaunay_mesh(&sampled_vertices)?;
+
+    flip_z_axis(&mut mesh_vertices);
 
     println!(
         "Remapping {} mesh vertices to sphere...",
         mesh_vertices.len()
     );
-    let remapped_vertices: Vec<Vertex> = mesh_vertices
+    let remapped_sphere_vertices: Vec<Vertex> = mesh_vertices
         .iter()
         .map(|v| {
             remap_rectangle_to_sphere(*v, img.width() as f32, img.height() as f32, sphere_scale)
@@ -608,22 +663,25 @@ fn main() -> Result<()> {
 
     fn filenamer(name: &str, meta: Option<&str>) -> String {
         if let Some(meta) = meta {
-            return format!("{}.{}.gltf", name, meta);
+            return format!("{}.{}", name, meta);
         }
-        return format!("{}.gltf", name);
+        return format!("{}", name);
     }
 
     write_gltf(
         &mesh_vertices,
         &mesh_indices,
-        Output::Standard,
+        args.output_type,
         filenamer(image_file.as_str(), None).as_str(),
+        &args.output_dir.clone(),
     );
+
     write_gltf(
-        &remapped_vertices,
+        &remapped_sphere_vertices,
         &mesh_indices,
-        Output::Standard,
+        args.output_type,
         filenamer(image_file.as_str(), Some("sphere")).as_str(),
+        &args.output_dir.clone(),
     );
 
     Ok(())
