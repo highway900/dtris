@@ -5,7 +5,7 @@ use clap::Parser;
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, Rgb, RgbImage, imageops::FilterType};
-use rand::Rng;
+use rand::{Rng, random};
 use spade::{DelaunayTriangulation, HasPosition, Point2, Triangulation};
 use std::{collections::HashMap, f32::consts::PI};
 
@@ -252,8 +252,6 @@ impl HasPosition for PointWithData {
     }
 }
 
-// --- Function to Perform Delaunay Triangulation ---
-
 /// Performs Delaunay triangulation on a set of 2D points (extracted from vertices).
 ///
 /// Args:
@@ -378,16 +376,40 @@ fn sample_image_edges(img: &DynamicImage) -> Result<Vec<Vertex>> {
     let mut sampled_vertices = Vec::with_capacity(4);
 
     // Define the four corners
-    let corners = [
+    let mut edges = vec![
         (0, 0),
         (width - 1, 0),
         (0, height - 1),
         (width - 1, height - 1),
     ];
 
+    const RANGE_W: u32 = 10;
+    const RANGE_H: u32 = 10;
+
+    let mut rng = rand::rng();
+    let width_samples = (0..RANGE_W)
+        .map(|_| {
+            let wp = rng.random_range(1..img.width() - 1);
+            (wp, 0_u32)
+        })
+        .collect::<Vec<(u32, u32)>>();
+
+    let mut rng = rand::rng();
+    let height_samples = (0..RANGE_H)
+        .map(|_| {
+            let wp = rng.random_range(1..img.height() - 1);
+            (0_u32, wp)
+        })
+        .collect::<Vec<(u32, u32)>>();
+
+    edges.extend(width_samples.iter());
+    edges.extend(width_samples.iter().map(|(a, _)| (*a, img.height() - 1)));
+    edges.extend(height_samples.iter());
+    edges.extend(height_samples.iter().map(|(_, b)| (img.width() - 1, *b)));
+
     println!("Sampling image corners...");
 
-    for (x, y) in corners.iter() {
+    for (x, y) in edges.iter() {
         let pixel = rgb_img.get_pixel(*x, *y);
         let r = pixel[0] as f32 / 255.0;
         let g = pixel[1] as f32 / 255.0;
