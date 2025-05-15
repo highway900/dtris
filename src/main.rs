@@ -561,6 +561,9 @@ struct Args {
     /// Output directory
     #[arg(long, default_value = "output")]
     output_dir: String,
+    /// Debug info
+    #[arg(short, long)]
+    debug_info: bool,
 }
 
 fn main() -> Result<()> {
@@ -639,25 +642,25 @@ fn main() -> Result<()> {
         mesh_indices.len() / 3
     );
 
-    // You can now use mesh_vertices and mesh_indices
-    // For example, print the first few vertices and triangles:
-    if !mesh_vertices.is_empty() {
-        println!("\nFirst 5 mesh vertices:");
-        for v in mesh_vertices.iter().filter(|p| p.color[0] > 0.0).take(5) {
-            println!(
-                "  Pos: [{:.2}, {:.2}, {:.2}], Color: [{:.2}, {:.2}, {:.2}]",
-                v.position[0], v.position[1], v.position[2], v.color[0], v.color[1], v.color[2]
-            );
+    if args.debug_info {
+        if !mesh_vertices.is_empty() {
+            println!("\nFirst 5 mesh vertices:");
+            for v in mesh_vertices.iter().filter(|p| p.color[0] > 0.0).take(5) {
+                println!(
+                    "  Pos: [{:.2}, {:.2}, {:.2}], Color: [{:.2}, {:.2}, {:.2}]",
+                    v.position[0], v.position[1], v.position[2], v.color[0], v.color[1], v.color[2]
+                );
+            }
         }
-    }
 
-    if mesh_indices.len() >= 3 {
-        println!("\nFirst 5 triangles (indices):");
-        for i in 0..std::cmp::min(5, mesh_indices.len() / 3) {
-            let i1 = mesh_indices[i * 3];
-            let i2 = mesh_indices[i * 3 + 1];
-            let i3 = mesh_indices[i * 3 + 2];
-            println!("  Triangle {}: ({}, {}, {})", i, i1, i2, i3);
+        if mesh_indices.len() >= 3 {
+            println!("\nFirst 5 triangles (indices):");
+            for i in 0..std::cmp::min(5, mesh_indices.len() / 3) {
+                let i1 = mesh_indices[i * 3];
+                let i2 = mesh_indices[i * 3 + 1];
+                let i3 = mesh_indices[i * 3 + 2];
+                println!("  Triangle {}: ({}, {}, {})", i, i1, i2, i3);
+            }
         }
     }
 

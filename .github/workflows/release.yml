@@ -9,6 +9,10 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
 
+    permissions:
+      contents: write
+      issues: write
+
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -26,6 +30,7 @@ jobs:
           tool: cargo-chef
 
       - name: Generate chef recipe
+        working-directory: dtris
         run: cargo chef prepare --recipe-path recipe.json
 
       - name: Cache Cargo dependencies
@@ -34,21 +39,24 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-chef-${{ hashFiles('recipe.json') }}
+            dtris/target
+          key: ${{ runner.os }}-cargo-chef-${{ hashFiles('dtris/recipe.json') }}
           restore-keys: |
             ${{ runner.os }}-cargo-chef-
             ${{ runner.os }}-
 
       - name: Cook cache
+        working-directory: dtris
         run: cargo chef cook --recipe-path recipe.json
 
       - name: Build release binary
+        working-directory: dtris
         run: cargo build --release
 
       - name: Find binary path and name
         id: find_binary
         shell: bash
+        working-directory: dtris
         run: |
           BINARY_NAME="dtris"
           case ${{ runner.os }} in
@@ -78,6 +86,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ steps.find_binary.outputs.binary_path }}
+          asset_path: dtris/${{ steps.find_binary.outputs.binary_path }}
           asset_name: ${{ steps.find_binary.outputs.asset_name }}
           asset_content_type: application/octet-stream
